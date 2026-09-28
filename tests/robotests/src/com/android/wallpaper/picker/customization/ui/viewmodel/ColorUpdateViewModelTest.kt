@@ -23,9 +23,11 @@ import android.widget.RemoteViews.ColorResources
 import androidx.test.filters.SmallTest
 import androidx.test.platform.app.InstrumentationRegistry
 import com.android.customization.picker.mode.data.repository.DarkModeStateRepository
-import com.android.wallpaper.system.UiModeManagerWrapper
+import com.android.systemui.monet.ColorScheme
+import com.android.wallpaper.testing.FakeUiModeManager
 import com.android.wallpaper.testing.collectLastValue
 import com.google.common.truth.Truth.assertThat
+import com.google.ux.material.libmonet.dynamiccolor.MaterialDynamicColors
 import dagger.hilt.android.internal.lifecycle.RetainedLifecycleImpl
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
@@ -47,7 +49,7 @@ class ColorUpdateViewModelTest {
     private lateinit var context: Context
     private lateinit var underTest: ColorUpdateViewModel
     @Inject lateinit var testScope: TestScope
-    @Inject lateinit var uiModeManager: UiModeManagerWrapper
+    @Inject lateinit var uiModeManager: FakeUiModeManager
     @Inject lateinit var darkModeStateRepository: DarkModeStateRepository
 
     @Before
@@ -55,7 +57,13 @@ class ColorUpdateViewModelTest {
         hiltRule.inject()
 
         context = InstrumentationRegistry.getInstrumentation().targetContext
-        underTest = ColorUpdateViewModel(context, RetainedLifecycleImpl(), darkModeStateRepository)
+        underTest =
+            ColorUpdateViewModel(
+                context,
+                RetainedLifecycleImpl(),
+                darkModeStateRepository,
+                uiModeManager,
+            )
     }
 
     private fun overlayColors(context: Context, colorMapping: SparseIntArray) {
@@ -114,6 +122,32 @@ class ColorUpdateViewModelTest {
             underTest.previewColors(54321, ThemeStyle.VIBRANT, isDarkMode = false)
 
             assertThat(colorPrimary()).isNotEqualTo(12345)
+        }
+    }
+
+    @Test
+    fun previewColors_followContrast() {
+        testScope.runTest {
+            val colorOutline = collectLastValue(underTest.colorOutline)
+            val outline = MaterialDynamicColors().outline()
+            underTest.setPreviewEnabled(true)
+            underTest.previewColors(54321, ThemeStyle.VIBRANT, isDarkMode = false)
+
+            assertThat(colorOutline())
+                .isEqualTo(
+                    ColorScheme(54321, false, ThemeStyle.VIBRANT, 0.0)
+                        .materialScheme
+                        .getArgb(outline)
+                )
+
+            uiModeManager.setContrast(1f)
+
+            assertThat(colorOutline())
+                .isEqualTo(
+                    ColorScheme(54321, false, ThemeStyle.VIBRANT, 1.0)
+                        .materialScheme
+                        .getArgb(outline)
+                )
         }
     }
 
