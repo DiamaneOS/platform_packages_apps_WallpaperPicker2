@@ -12,6 +12,7 @@ import android.content.ServiceConnection
 import android.graphics.Matrix
 import android.graphics.Point
 import android.net.Uri
+import android.os.Bundle
 import android.os.IBinder
 import android.os.RemoteException
 import android.service.wallpaper.IWallpaperEngine
@@ -338,6 +339,35 @@ constructor(
             } catch (e: RemoteException) {
                 Log.e(TAG, "Remote exception of wallpaper connection", e)
             }
+        }
+    }
+
+    /**
+     * DiamaneOS: sends the command [action] with [extras] to the engine previewing [wallpaperModel]
+     * for [destinationFlag], if it is connected.
+     */
+    suspend fun dispatchWallpaperCommand(
+        wallpaperModel: LiveWallpaperModel,
+        engineRenderingConfig: EngineRenderingConfig,
+        destinationFlag: Int,
+        action: String,
+        extras: Bundle,
+    ) {
+        val engine =
+            wallpaperModel.liveWallpaperData.systemWallpaperInfo
+                .engineKey(
+                    engineRenderingConfig.getEngineDisplaySize(),
+                    wallpaperModel.liveWallpaperData.description,
+                    wallpaperModel.liveWallpaperData.systemWallpaperInfo.component,
+                    destinationFlag,
+                )
+                .let { engineKey ->
+                    wallpaperConnectionMap[engineKey]?.await()?.engineConnection?.get()?.engine
+                }
+        try {
+            engine?.dispatchWallpaperCommand(action, 0, 0, 0, extras)
+        } catch (e: RemoteException) {
+            Log.w(TAG, "Error sending $action to the wallpaper engine", e)
         }
     }
 

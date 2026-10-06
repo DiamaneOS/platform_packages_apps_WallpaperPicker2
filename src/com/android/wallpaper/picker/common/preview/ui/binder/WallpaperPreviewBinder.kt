@@ -18,11 +18,14 @@ package com.android.wallpaper.picker.common.preview.ui.binder
 
 import android.app.WallpaperColors
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.graphics.Point
+import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.SurfaceControlViewHost
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import androidx.core.os.bundleOf
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
@@ -33,6 +36,7 @@ import com.android.wallpaper.model.wallpaper.DeviceDisplayType
 import com.android.wallpaper.picker.common.preview.ui.binder.BasePreviewBinder.MEDIA_OVERLAY_SURFACE_LAYER
 import com.android.wallpaper.picker.common.preview.ui.viewmodel.BasePreviewViewModel
 import com.android.wallpaper.picker.customization.shared.model.WallpaperColorsModel
+import com.android.wallpaper.picker.customization.ui.viewmodel.ColorUpdateViewModel
 import com.android.wallpaper.picker.data.WallpaperModel
 import com.android.wallpaper.util.SurfaceViewUtils
 import com.android.wallpaper.util.SurfaceViewUtils.attachView
@@ -68,6 +72,7 @@ object WallpaperPreviewBinder {
         isFirstBindingDeferred: CompletableDeferred<Boolean>,
         onPreviewReady: ((Screen) -> Unit)? = null,
         onPreviewSurfaceDestroyed: ((Screen) -> Unit)? = null,
+        colorUpdateViewModel: ColorUpdateViewModel? = null,
     ) {
         var surfaceCallback: SurfaceViewUtils.SurfaceCallback? = null
         viewLifecycleOwner.lifecycleScope.launch {
@@ -86,6 +91,7 @@ object WallpaperPreviewBinder {
                         isFirstBindingDeferred = isFirstBindingDeferred,
                         onPreviewReady = onPreviewReady,
                         onPreviewSurfaceDestroyed = onPreviewSurfaceDestroyed,
+                        colorUpdateViewModel = colorUpdateViewModel,
                     )
                 surfaceView.compositionOrder = MEDIA_OVERLAY_SURFACE_LAYER
                 surfaceCallback?.let { surfaceView.holder.addCallback(it) }
@@ -116,12 +122,14 @@ object WallpaperPreviewBinder {
         isFirstBindingDeferred: CompletableDeferred<Boolean>,
         onPreviewReady: ((Screen) -> Unit)? = null,
         onPreviewSurfaceDestroyed: ((Screen) -> Unit)? = null,
+        colorUpdateViewModel: ColorUpdateViewModel? = null,
     ): SurfaceViewUtils.SurfaceCallback {
 
         return object : SurfaceViewUtils.SurfaceCallback {
 
             var job: Job? = null
             var surfaceControlViewHost: SurfaceControlViewHost? = null
+            var previewColorsJob: Job? = null
 
             override fun surfaceCreated(holder: SurfaceHolder) {
                 job =
@@ -163,7 +171,24 @@ object WallpaperPreviewBinder {
                                     listener = listener,
                                     onPreviewReady = { onPreviewReady?.invoke(screen) },
                                 )
+                                // DiamaneOS: the system's own live wallpaper (Paper) shows the
+                                // colours being previewed; no other app is told them.
+                                previewColorsJob?.cancel()
+                                if (colorUpdateViewModel != null && wallpaper.isFromSystem()) {
+                                    previewColorsJob = launch {
+                                        colorUpdateViewModel.previewingWallpaperColors.collect {
+                                            wallpaperConnectionUtils.dispatchWallpaperCommand(
+                                                wallpaperModel = wallpaper,
+                                                engineRenderingConfig = engineRenderingConfig,
+                                                destinationFlag = screen.toFlag(),
+                                                action = COMMAND_PREVIEW_COLORS,
+                                                extras = it?.toExtras() ?: Bundle(),
+                                            )
+                                        }
+                                    }
+                                }
                             } else if (wallpaper is WallpaperModel.StaticWallpaperModel) {
+                                previewColorsJob?.cancel()
                                 val staticPreviewView =
                                     LayoutInflater.from(applicationContext)
                                         .inflate(R.layout.fullscreen_wallpaper_preview, null)
@@ -226,4 +251,26 @@ object WallpaperPreviewBinder {
             }
         }
     }
+
+    /**
+     * DiamaneOS: the command SystemUI's Paper wallpaper (TallyWallpaper) takes in a preview to show
+     * the colours being previewed: their seed, style and dark theme; without a seed, it shows the
+     * applied colours.
+     */
+    private const val COMMAND_PREVIEW_COLORS = "de.diamaneos.wallpaper.PREVIEW_COLOURS"
+    private const val EXTRA_SEED_COLOR = "seed_color"
+    private const val EXTRA_THEME_STYLE = "theme_style"
+    private const val EXTRA_DARK_MODE = "dark_mode"
+
+    private fun ColorUpdateViewModel.PreviewingColors.toExtras(): Bundle =
+        bundleOf(
+            EXTRA_SEED_COLOR to colorSeed,
+            EXTRA_THEME_STYLE to style,
+            EXTRA_DARK_MODE to isDarkMode,
+        )
+
+    /** Whether the wallpaper comes from a system app. */
+    private fun WallpaperModel.LiveWallpaperModel.isFromSystem(): Boolean =
+        (liveWallpaperData.systemWallpaperInfo.serviceInfo.applicationInfo.flags and
+            ApplicationInfo.FLAG_SYSTEM) != 0
 }
