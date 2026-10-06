@@ -114,6 +114,17 @@ constructor(
                 }
             }
             .stateIn(coroutineScope, SharingStarted.Eagerly, null)
+
+    /**
+     * DiamaneOS: the colours being previewed, or null when none are. The preview of the system's
+     * Paper wallpaper shows them (WallpaperPreviewBinder), as applying them would.
+     */
+    val previewingWallpaperColors: StateFlow<PreviewingColors?> =
+        combine(previewingColors, isPreviewEnabled) { previewing, isEnabled ->
+                previewing?.takeIf { isEnabled }
+            }
+            .stateIn(coroutineScope, SharingStarted.Eagerly, null)
+
     private val colors: MutableList<Color> = mutableListOf()
 
     private inner class Color(private val colorResId: Int, dynamicColor: DynamicColor?) {
@@ -244,7 +255,7 @@ constructor(
         updateColors()
     }
 
-    private data class PreviewingColors(
+    data class PreviewingColors(
         @ColorInt val colorSeed: Int,
         @ThemeStyle.Type val style: Int,
         val isDarkMode: Boolean,
