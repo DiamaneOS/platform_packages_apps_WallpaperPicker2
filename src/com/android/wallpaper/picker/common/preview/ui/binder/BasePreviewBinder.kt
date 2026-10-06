@@ -149,6 +149,7 @@ object BasePreviewBinder {
             isFirstBindingDeferred = isFirstBindingDeferred,
             onPreviewReady = onPreviewReady,
             onPreviewSurfaceDestroyed = onPreviewSurfaceDestroyed,
+            colorUpdateViewModel = colorUpdateViewModel,
         )
 
         workspaceBinder.bind(
